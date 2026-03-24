@@ -1,0 +1,238 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+    <title>OPTIFI | Save World from Crush</title>
+    <style>
+        :root { --gold: #ffd700; --bg: #050b16; --neon: #00f3ff; --peace-green: #2ecc71; --alert-red: #e74c3c; --soft-blue: #3498db; }
+        body { background: var(--bg); color: white; font-family: sans-serif; margin: 0; display: flex; flex-direction: column; align-items: center; overflow: hidden; height: 100vh; }
+
+        /* HUD & PROGRESS */
+        #hud { width: 100%; padding: 15px; background: rgba(10,25,40,0.95); border-bottom: 3px solid var(--soft-blue); display: flex; justify-content: space-between; align-items: center; box-sizing: border-box; }
+        #level-btn { background: #001a33; border: 2px solid var(--neon); color: var(--neon); padding: 8px 15px; border-radius: 20px; font-weight: bold; cursor: pointer; }
+        #timer-display { font-size: 18px; font-weight: bold; color: var(--alert-red); border: 2px solid var(--alert-red); padding: 4px 10px; border-radius: 6px; }
+        #prog-container { width: 90%; height: 12px; background: #111; margin: 10px 0; border-radius: 10px; overflow: hidden; border: 1px solid #333; }
+        #prog-bar { width: 0%; height: 100%; background: linear-gradient(90deg, var(--soft-blue), var(--peace-green)); transition: width 0.3s; }
+
+        /* GAME GRID */
+        #grid { 
+            display: grid; grid-template-columns: repeat(8, 1fr); gap: 6px; 
+            background: rgba(255,255,255,0.05); padding: 12px; border-radius: 15px; border: 2px solid var(--soft-blue);
+            position: relative; transition: 0.5s;
+        }
+        .tile { width: 42px; height: 42px; background: rgba(255,255,255,0.1); display: flex; justify-content: center; align-items: center; border-radius: 6px; cursor: pointer; }
+        .tile img { width: 36px; height: 26px; pointer-events: none; border-radius: 2px; transition: 0.2s; border: 1px solid #444; object-fit: cover; }
+        .selected { outline: 3px solid #fff; background: rgba(255,255,255,0.3); transform: scale(1.1); z-index: 10; }
+        
+        /* TUTORIAL OVERLAY */
+        #tutorial { position: fixed; top: 0; left: 0; width: 100%; height: 100%; background: rgba(0,0,0,0.8); z-index: 3000; display: flex; flex-direction: column; justify-content: center; align-items: center; text-align: center; }
+        .tut-box { background: var(--bg); border: 2px solid var(--neon); padding: 25px; border-radius: 20px; width: 80%; }
+
+        /* LEADERBOARD/GAME OVER */
+        #game-over { display: none; position: fixed; top:0; left:0; width:100%; height:100%; background: rgba(0,10,20,0.98); z-index: 2000; flex-direction: column; justify-content: center; align-items: center; text-align: center; }
+        #leaderboard { width: 85%; background: rgba(255,255,255,0.05); border-radius: 15px; padding: 15px; margin: 20px 0; border: 1px solid var(--gold); }
+        .leader-row { display: flex; justify-content: space-between; padding: 8px; border-bottom: 1px solid #333; font-size: 14px; }
+
+        .btn-action { width: 250px; padding: 15px; margin: 8px; border: none; border-radius: 50px; font-weight: bold; cursor: pointer; text-transform: uppercase; }
+        .btn-retry { background: var(--peace-green); color: white; }
+
+        .star { position: absolute; width: 6px; height: 6px; background: var(--gold); border-radius: 50%; pointer-events: none; animation: fly 0.6s ease-out forwards; }
+        @keyframes fly { to { transform: translate(var(--x), var(--y)); opacity: 0; } }
+    </style>
+</head>
+<body>
+
+<div id="tutorial">
+    <div class="tut-box">
+        <h2 style="color:var(--neon)">MISSION BRIEFING</h2>
+        <p>The world is in chaos. Match 3 or more flags to stabilize the region.</p>
+        <p>Watch Ads for "Diplomatic Aid" to boost stability instantly!</p>
+        <button class="btn-action btn-retry" onclick="closeTutorial()">I'M READY</button>
+    </div>
+</div>
+
+<div id="hud">
+    <button id="level-btn">ZONE 1</button>
+    <div id="score" style="font-size:24px; font-weight:bold; color:var(--gold)">0</div>
+    <div id="timer-display">120s</div>
+</div>
+<div id="prog-container"><div id="prog-bar"></div></div>
+
+<button class="btn-action" style="background:var(--soft-blue); color:white; width:85%;" onclick="startAd()">Diplomatic Aid (+25% Stability)</button>
+
+<div id="grid"></div>
+
+<div id="game-over">
+    <h1 style="color:var(--gold);">GLOBAL PEACE RANKINGS</h1>
+    <div id="leaderboard">
+        <div class="leader-row" style="color:var(--gold)"><span>1. Sabit Hussain</span><span>95,400</span></div>
+        <div class="leader-row"><span>2. CryptoKing_99</span><span>82,150</span></div>
+        <div class="leader-row"><span>3. YOU (Current)</span><span id="player-final-score">0</span></div>
+        <div class="leader-row"><span>4. PeaceSeeker</span><span>61,000</span></div>
+    </div>
+    <button class="btn-action btn-retry" onclick="location.reload()">Return to Mission</button>
+</div>
+
+<script>
+    // --- OFFICIAL AD UNIT ID ---
+    const AD_UNIT_ID = 'ca-app-pub-4428939380166281/6243805951';
+
+    const countryPool = ["pk","us","cn","sa","tr","gb","ae","af","de","fr","it","jp","br","ca","au","ru","in","eg","mx","es","my","id","kr","ch"];
+    let activeCountries = [], score = 0, prog = 0, lvl = 1, grid = [], sel = null, isAnimating = false, timeLeft = 120, gameTimer;
+
+    function closeTutorial() { document.getElementById('tutorial').style.display = 'none'; init(); }
+
+    function pickNewCountries() { activeCountries = [...countryPool].sort(() => 0.5 - Math.random()).slice(0, 6); }
+
+    function init() {
+        pickNewCountries();
+        const board = document.getElementById('grid');
+        board.innerHTML = ''; grid = [];
+        for (let i = 0; i < 64; i++) {
+            const t = document.createElement('div');
+            t.className = 'tile'; t.id = i;
+            const type = activeCountries[Math.floor(Math.random() * activeCountries.length)];
+            t.dataset.country = type;
+            t.innerHTML = `<img src="https://flagcdn.com/w160/${type}.png">`;
+            t.onclick = () => clickTile(t);
+            board.appendChild(t);
+            grid.push(t);
+        }
+        while(checkMatches(false)) { shuffleImmediately(); }
+        startClock();
+    }
+
+    function startClock() {
+        gameTimer = setInterval(() => {
+            timeLeft--;
+            document.getElementById('timer-display').innerText = timeLeft + "s";
+            if (timeLeft <= 0) { clearInterval(gameTimer); endMission(); }
+        }, 1000);
+    }
+
+    function endMission() {
+        document.getElementById('player-final-score').innerText = score;
+        document.getElementById('game-over').style.display = 'flex';
+    }
+
+    function shuffleImmediately() {
+        grid.forEach(t => {
+            const type = activeCountries[Math.floor(Math.random() * activeCountries.length)];
+            t.dataset.country = type;
+            t.querySelector('img').src = `https://flagcdn.com/w160/${type}.png`;
+        });
+    }
+
+    async function clickTile(t) {
+        if (isAnimating) return;
+        if (!sel) { sel = t; t.classList.add('selected'); } 
+        else {
+            const id1 = parseInt(sel.id), id2 = parseInt(t.id);
+            if ([id1-1, id1+1, id1-8, id1+8].includes(id2)) {
+                isAnimating = true;
+                swap(sel, t);
+                if (!checkMatches(true)) { await new Promise(r => setTimeout(r, 250)); swap(sel, t); }
+                isAnimating = false;
+            }
+            sel.classList.remove('selected'); sel = null;
+        }
+    }
+
+    function swap(t1, t2) {
+        const f1 = t1.dataset.country, f2 = t2.dataset.country;
+        t1.dataset.country = f2; t1.querySelector('img').src = `https://flagcdn.com/w160/${f2}.png`;
+        t2.dataset.country = f1; t2.querySelector('img').src = `https://flagcdn.com/w160/${f1}.png`;
+    }
+
+    function checkMatches(reward) {
+        let matches = new Set();
+        for (let i = 0; i < 64; i++) {
+            if (i % 8 < 6 && grid[i].dataset.country === grid[i+1].dataset.country && grid[i].dataset.country === grid[i+2].dataset.country)
+                [i, i+1, i+2].forEach(x => matches.add(x));
+            if (i < 48 && grid[i].dataset.country === grid[i+8].dataset.country && grid[i].dataset.country === grid[i+16].dataset.country)
+                [i, i+8, i+16].forEach(x => matches.add(x));
+        }
+        if (matches.size > 0) {
+            if (reward) {
+                matches.forEach(idx => {
+                    createStars(grid[idx]);
+                    grid[idx].querySelector('img').style.opacity = '0';
+                    grid[idx].dataset.country = "empty";
+                    score += 25; prog += 5;
+                });
+                updateUI();
+                setTimeout(applyGravity, 350);
+            }
+            return true;
+        }
+        return false;
+    }
+
+    function applyGravity() {
+        for (let c = 0; c < 8; c++) {
+            for (let r = 7; r >= 0; r--) {
+                if (grid[r * 8 + c].dataset.country === "empty") {
+                    for (let k = r - 1; k >= 0; k--) {
+                        if (grid[k * 8 + c].dataset.country !== "empty") {
+                            copyLeader(grid[k * 8 + c], grid[r * 8 + c]);
+                            grid[k * 8 + c].dataset.country = "empty";
+                            grid[k * 8 + c].querySelector('img').style.opacity = '0';
+                            break;
+                        }
+                    }
+                }
+            }
+        }
+        grid.forEach(t => {
+            if (t.dataset.country === "empty") {
+                const type = activeCountries[Math.floor(Math.random() * activeCountries.length)];
+                t.dataset.country = type;
+                t.querySelector('img').src = `https://flagcdn.com/w160/${type}.png`;
+            }
+            t.querySelector('img').style.opacity = '1';
+        });
+        setTimeout(() => checkMatches(true), 350);
+    }
+
+    function copyLeader(from, to) {
+        to.dataset.country = from.dataset.country;
+        to.querySelector('img').src = from.querySelector('img').src;
+        to.querySelector('img').style.opacity = '1';
+    }
+
+    function createStars(t) {
+        const rect = t.getBoundingClientRect();
+        for(let i=0; i<6; i++) {
+            const s = document.createElement('div');
+            s.className = 'star';
+            s.style.left = (rect.left + 20) + 'px'; s.style.top = (rect.top + 20) + 'px';
+            s.style.setProperty('--x', (Math.random()*80-40)+'px');
+            s.style.setProperty('--y', (Math.random()*80-40)+'px');
+            document.body.appendChild(s);
+            setTimeout(() => s.remove(), 600);
+        }
+    }
+
+    function updateUI() {
+        document.getElementById('score').innerText = score;
+        if (prog >= 100) {
+            prog = 0; lvl++; timeLeft = 120;
+            document.getElementById('level-btn').innerText = "ZONE " + lvl;
+            pickNewCountries(); shuffleImmediately();
+        }
+        document.getElementById('prog-bar').style.width = prog + "%";
+    }
+
+    async function startAd() { 
+        if (window.admob) {
+            try {
+                await admob.rewardVideo.load({ adUnitId: AD_UNIT_ID });
+                await admob.rewardVideo.show();
+                document.addEventListener('admob.rewardvideo.reward', () => { prog += 25; updateUI(); });
+            } catch (e) { prog += 25; updateUI(); }
+        } else { prog += 25; updateUI(); alert("Diplomatic Boost Applied!"); }
+    }
+</script>
+</body>
+</html>
